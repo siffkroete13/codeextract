@@ -2,7 +2,7 @@ import json
 import os
 from flask import Flask, render_template, request, jsonify
 
-from analyzers.analyzer import scan_project, build_gpt_bundle
+from analyzers.python_analyzer import scan_project, build_gpt_bundle
 
 app = Flask(__name__)
 
