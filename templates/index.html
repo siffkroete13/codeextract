@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GPT Bundle Builder</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="header">
+      <div>
+        <h1>GPT Bundle Builder</h1>
+        <p class="muted">Alles lokal auf deinem Rechner. Keine Uploads.</p>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="row">
+        <label class="label">Projektpfad</label>
+        <input id="rootInput" class="input" type="text" value="{{ root }}" />
+        <button id="reloadBtn" class="btn">Neu scannen</button>
+      </div>
+      <div class="row">
+        <input id="filterInput" class="input" type="text" placeholder="Filter (Dateiname, Funktion, Klasse...)" />
+        <button id="checkAllBtn" class="btn btn-ghost">Alle an</button>
+        <button id="uncheckAllBtn" class="btn btn-ghost">Alle aus</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="row space-between">
+        <div class="muted" id="stats">...</div>
+        <div class="row">
+          <button id="exportBtn" class="btn btn-primary">Export: gpt_bundle.txt</button>
+        </div>
+      </div>
+      <div class="hint">
+        Tipp: File-Checkbox toggelt alles darunter. Du kannst danach einzelne Funktionen/Methoden wieder abwaehlen.
+      </div>
+    </section>
+
+    <section class="panel">
+      <div id="tree" class="tree">
+        {% for f in files %}
+          <div class="file-node" data-file="{{ f.abs }}">
+            <div class="file-head">
+              <label class="cb">
+                <input type="checkbox" class="file-cb" data-file="{{ f.abs }}">
+                <span class="file-name">{{ f.rel }}</span>
+              </label>
+              <button class="btn btn-mini toggle-btn" type="button">Auf/Zu</button>
+            </div>
+
+            <div class="children">
+              {% for item in f.items %}
+                {% if item.type in ["function","async_function"] %}
+                  <label class="cb child">
+                    <input type="checkbox"
+                           class="child-cb"
+                           data-file="{{ f.abs }}"
+                           data-kind="function"
+                           data-name="{{ item.name }}">
+                    <span>{{ item.type }} {{ item.name }}()</span>
+                  </label>
+                {% elif item.type == "class" %}
+                  <div class="class-block" data-class="{{ item.name }}">
+                    <label class="cb child class-head">
+                      <input type="checkbox"
+                             class="class-cb"
+                             data-file="{{ f.abs }}"
+                             data-kind="class"
+                             data-name="{{ item.name }}">
+                      <span>class {{ item.name }}</span>
+                    </label>
+
+                    <div class="methods">
+                      {% for m in item.methods %}
+                        <label class="cb child method">
+                          <input type="checkbox"
+                                 class="method-cb"
+                                 data-file="{{ f.abs }}"
+                                 data-kind="method"
+                                 data-class="{{ item.name }}"
+                                 data-name="{{ m.name }}">
+                          <span>method {{ m.name }}()</span>
+                        </label>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <footer class="footer muted">
+      Output wird im Projekt als <code>gpt_bundle.txt</code> gespeichert.
+    </footer>
+  </div>
+
+  <script>
+    window.__INITIAL_ROOT__ = {{ root|tojson }};
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,74 +1,184 @@
+import ast
 import os
-import re
-import sys
+from typing import Dict, List, Any, Optional, Set
 
-ROOT = sys.argv[1] if len(sys.argv) > 1 else "."
 
-FUNC_RE = re.compile(r"^(?:async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", re.M)
+class FileAnalyzer(ast.NodeVisitor):
+    def __init__(self):
+        self.items: List[Dict[str, Any]] = []
 
-def scan_py_files(root):
-    result = {}
-    for r, _, files in os.walk(root):
-        for f in files:
-            if f.endswith(".py"):
-                path = os.path.join(r, f)
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
-                        code = fh.read()
-                except Exception:
-                    continue
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        self.items.append({
+            "type": "function",
+            "name": node.name,
+            "lineno_start": node.lineno,
+            "lineno_end": node.end_lineno,
+        })
 
-                funcs = []
-                for m in FUNC_RE.finditer(code):
-                    funcs.append({
-                        "name": m.group(1),
-                        "pos": m.start()
-                    })
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        self.items.append({
+            "type": "async_function",
+            "name": node.name,
+            "lineno_start": node.lineno,
+            "lineno_end": node.end_lineno,
+        })
 
-                if funcs:
-                    result[path] = {
-                        "code": code,
-                        "funcs": funcs
-                    }
+    def visit_ClassDef(self, node: ast.ClassDef):
+        cls = {
+            "type": "class",
+            "name": node.name,
+            "lineno_start": node.lineno,
+            "lineno_end": node.end_lineno,
+            "methods": []
+        }
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                cls["methods"].append({
+                    "type": "method",
+                    "name": item.name,
+                    "lineno_start": item.lineno,
+                    "lineno_end": item.end_lineno,
+                })
+            elif isinstance(item, ast.AsyncFunctionDef):
+                cls["methods"].append({
+                    "type": "async_method",
+                    "name": item.name,
+                    "lineno_start": item.lineno,
+                    "lineno_end": item.end_lineno,
+                })
+        self.items.append(cls)
+
+
+def analyze_file(path: str) -> Optional[Dict[str, Any]]:
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            source = f.read()
+        tree = ast.parse(source)
+        analyzer = FileAnalyzer()
+        for node in tree.body:
+            # Nur top-level sammeln, nicht rekursiv alles doppelt.
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                analyzer.visit(node)
+
+        if not analyzer.items:
+            return None
+
+        return {
+            "path": path,
+            "items": analyzer.items,
+            "source_lines": source.splitlines()
+        }
+    except (SyntaxError, OSError, UnicodeError):
+        return None
+
+
+def scan_project(root: str, ignore_dirs: Optional[Set[str]] = None) -> Dict[str, Any]:
+    root = os.path.abspath(root)
+    ignore_dirs = ignore_dirs or set()
+
+    result: Dict[str, Any] = {}
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        # prune ignored dirs in-place
+        dirnames[:] = [d for d in dirnames if d not in ignore_dirs and not d.startswith(".git")]
+
+        for fname in filenames:
+            if not fname.endswith(".py"):
+                continue
+            full_path = os.path.join(dirpath, fname)
+            analysis = analyze_file(full_path)
+            if analysis:
+                result[full_path] = analysis
+
     return result
 
-def choose(items, label):
-    print(f"\n{label}")
-    for i, it in enumerate(items):
-        print(f"[{i}] {it}")
-    raw = input("Auswahl (z.B. 0,2 oder leer=alle): ").strip()
-    if not raw:
-        return items
-    idx = {int(x) for x in raw.split(",") if x.isdigit()}
-    return [it for i, it in enumerate(items) if i in idx]
 
-def main():
-    data = scan_py_files(ROOT)
-    if not data:
-        print("Keine Python-Dateien mit Funktionen gefunden.")
-        return
+def extract_lines(source_lines: List[str], start: int, end: int) -> str:
+    # lineno is 1-based inclusive
+    if start < 1:
+        start = 1
+    if end < start:
+        end = start
+    return "\n".join(source_lines[start - 1:end])
 
-    files = list(data.keys())
-    sel_files = choose(files, "Dateien:")
 
-    out = []
+def build_gpt_bundle(analysis: Dict[str, Any], selection: Dict[str, Any], out_path: str = "gpt_bundle.txt") -> None:
+    """
+    selection format (from UI):
+    {
+      "/abs/path/file.py": {
+        "functions": ["foo", ...],
+        "classes": {
+          "MyClass": null,            # whole class
+          "OtherClass": ["m1","m2"]   # only these methods (but we will include class header + those method defs)
+        }
+      }
+    }
+    """
 
-    for f in sel_files:
-        entry = data[f]
-        fnames = [x["name"] for x in entry["funcs"]]
-        sel_funcs = choose(fnames, f"Funktionen in {f}:")
+    out: List[str] = []
 
-        out.append(f"\n# FILE {f}")
+    for file_path, sel in selection.items():
+        file_data = analysis.get(file_path)
+        if not file_data:
+            continue
 
-        for func in entry["funcs"]:
-            if func["name"] in sel_funcs:
-                out.append(f"\n# FUNC {func['name']}")
-                out.append(entry["code"][func["pos"]:])
+        funcs_wanted = set(sel.get("functions", []) or [])
+        classes_wanted = sel.get("classes", {}) or {}
 
-    with open("gpt_bundle.txt", "w", encoding="utf-8") as fh:
-        fh.write("\n".join(out))
+        if not funcs_wanted and not classes_wanted:
+            continue
 
-    print("\n✅ gpt_bundle.txt erstellt")
+        out.append("\n# ===============================")
+        out.append(f"# FILE: {file_path}")
+        out.append("# ===============================\n")
 
-if __name__ == "__main__":
-    main()
+        items = file_data["items"]
+        lines = file_data["source_lines"]
+
+        for item in items:
+            if item["type"] in ("function", "async_function"):
+                if item["name"] in funcs_wanted:
+                    out.append(f"# {item['type'].upper()} {item['name']}")
+                    out.append(extract_lines(lines, item["lineno_start"], item["lineno_end"]))
+                    out.append("")
+
+            elif item["type"] == "class":
+                cls = item["name"]
+                if cls not in classes_wanted:
+                    continue
+
+                wanted_methods = classes_wanted[cls]  # None or list[str]
+
+                if wanted_methods is None:
+                    # Whole class
+                    out.append(f"# CLASS {cls}")
+                    out.append(extract_lines(lines, item["lineno_start"], item["lineno_end"]))
+                    out.append("")
+                else:
+                    # Only selected methods: include class signature line + selected method blocks
+                    # We include class line through the line right before first method (best-effort),
+                    # then include chosen methods blocks.
+                    out.append(f"# CLASS {cls} (selected methods)")
+
+                    methods = item.get("methods", [])
+                    methods_sorted = sorted(methods, key=lambda m: m["lineno_start"])
+                    if methods_sorted:
+                        class_header_end = methods_sorted[0]["lineno_start"] - 1
+                        out.append(extract_lines(lines, item["lineno_start"], class_header_end))
+                    else:
+                        # Class without methods: just include whole class (nothing else to do)
+                        out.append(extract_lines(lines, item["lineno_start"], item["lineno_end"]))
+                        out.append("")
+                        continue
+
+                    wanted_set = set(wanted_methods)
+                    for m in methods_sorted:
+                        if m["name"] in wanted_set:
+                            out.append(f"\n# {m['type'].upper()} {cls}.{m['name']}")
+                            out.append(extract_lines(lines, m["lineno_start"], m["lineno_end"]))
+
+                    out.append("")
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(out))
