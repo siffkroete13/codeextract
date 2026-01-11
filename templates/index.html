@@ -53,7 +53,7 @@
             </div>
 
             <div class="children">
-              {% for item in f.items %}
+              {% for item in f["items"] %}
                 {% if item.type in ["function","async_function"] %}
                   <label class="cb child">
                     <input type="checkbox"
