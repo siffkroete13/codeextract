@@ -20,20 +20,29 @@ def index():
     analysis = scan_project(root, ignore_dirs=default_ignore_dirs())
 
     ui_files = []
+
     for abs_path, fa in analysis.items():
         rel = os.path.relpath(abs_path, root)
+
+        # WICHTIG: items als LIST, nicht als dict
+        items = []
+        items.extend(fa.functions)
+        items.extend(fa.classes)
+
         ui_files.append({
             "abs": abs_path,
             "rel": rel,
-            "items": {
-                "functions": fa.functions,
-                "classes": fa.classes,
-            },
+            "items": items,
         })
 
     ui_files.sort(key=lambda x: x["rel"].lower())
 
-    return render_template("index.html", root=root, files=ui_files)
+    return render_template(
+        "index.html",
+        root=root,
+        files=ui_files
+    )
+
 
 @app.post("/export")
 def export_bundle():
