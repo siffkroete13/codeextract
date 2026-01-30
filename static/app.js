@@ -35,80 +35,18 @@ function applyFilter(text) {
 }
 
 function buildSelectionPayload(root) {
-  // selection format:
-  // {
-  //   "/abs/path/file.py": {
-  //     "functions": ["foo"],
-  //     "classes": { "MyClass": ["method1","method2"], "Other": [] },
-  //     "include_full_classes": ["WholeClassName"]   (optional, but we will use classes key with method lists)
-  //   }
-  // }
-
   const selection = {};
 
-  // Functions
-  qsa(".child-cb").forEach(cb => {
-    if (!cb.checked) return;
-    const file = cb.dataset.file;
-    const name = cb.dataset.name;
-    selection[file] ??= { functions: [], classes: {} };
-    selection[file].functions.push(name);
-  });
-
-  // Classes (whole class)
-  qsa(".class-cb").forEach(cb => {
-    if (!cb.checked) return;
-    const file = cb.dataset.file;
-    const cls = cb.dataset.name;
-    selection[file] ??= { functions: [], classes: {} };
-
-    // Mark class selected; methods may further refine
-    // We will include the class shell AND only selected methods,
-    // but if class is checked and no methods are checked, include whole class.
-    selection[file].classes[cls] ??= null;
-  });
-
-  // Methods
-  qsa(".method-cb").forEach(cb => {
-    if (!cb.checked) return;
-    const file = cb.dataset.file;
-    const cls = cb.dataset.class;
-    const name = cb.dataset.name;
-    selection[file] ??= { functions: [], classes: {} };
-
-    if (selection[file].classes[cls] === null) {
-      // class selected as whole; keep null (meaning whole class)
-      return;
-    }
-    if (!Array.isArray(selection[file].classes[cls])) {
-      selection[file].classes[cls] = [];
-    }
-    selection[file].classes[cls].push(name);
-  });
-
-  // If class is checked but some methods are checked, we want method list.
-  // We handle it by: if class cb checked and method cbs checked -> list methods (not whole class)
-  // Do second pass:
-  const classBlocks = qsa(".class-block");
-  classBlocks.forEach(block => {
-    const file = qs(".class-cb", block).dataset.file;
-    const cls = block.dataset.class;
-    const classCb = qs(".class-cb", block);
-    const methodCbs = qsa(".method-cb", block);
-    const checkedMethods = methodCbs.filter(m => m.checked).map(m => m.dataset.name);
-
-    if (!classCb.checked) return;
-    selection[file] ??= { functions: [], classes: {} };
-
-    if (checkedMethods.length > 0) {
-      selection[file].classes[cls] = checkedMethods;
-    } else {
-      selection[file].classes[cls] = null; // whole class
+  // NUR angeklickte FILES sammeln
+  document.querySelectorAll(".file-cb").forEach(cb => {
+    if (cb.checked) {
+      selection[cb.dataset.file] = true;
     }
   });
 
   return { root, selection };
 }
+
 
 function wireTree() {
   // File toggles children

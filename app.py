@@ -3,8 +3,30 @@ from flask import Flask, render_template, request, jsonify
 
 from core.scanner import scan_project
 from core.bundle_builder import build_bundle
+from core.project_tree import build_project_tree
 
 app = Flask(__name__)
+
+
+def build_project_tree(root: str, ignore_dirs: set[str]) -> str:
+    lines = []
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in ignore_dirs and not d.startswith(".")
+        ]
+
+        rel = os.path.relpath(dirpath, root)
+        indent = "  " * (0 if rel == "." else rel.count(os.sep) + 1)
+
+        if rel != ".":
+            lines.append(f"{indent}{os.path.basename(dirpath)}/")
+
+        for f in sorted(filenames):
+            lines.append(f"{indent}  {f}")
+
+    return "\n".join(lines)
 
 def default_ignore_dirs() -> set[str]:
     return {
@@ -14,8 +36,11 @@ def default_ignore_dirs() -> set[str]:
 
 @app.get("/")
 def index():
-    root = request.args.get("root", ".").strip() or "."
-    root = os.path.abspath(root)
+
+    DEFAULT_ROOT = "C:/Homepage/math-education-v3"
+    # DEFAULT_ROOT = "C:/Homepage/codeextract"
+
+    root = os.path.abspath(request.args.get("root") or DEFAULT_ROOT)
 
     analysis = scan_project(root, ignore_dirs=default_ignore_dirs())
 
@@ -54,6 +79,12 @@ def export_bundle():
     out_path = os.path.join(root, "gpt_bundle.txt")
 
     build_bundle(list(analysis.values()), selection, out_path)
+
+    tree = build_project_tree(root, default_ignore_dirs())
+
+    with open(out_path, "a", encoding="utf-8") as f:
+        f.write("\n\n# PROJECT STRUCTURE\n\n")
+        f.write(tree)
 
     return jsonify({"ok": True, "out_path": out_path})
 
