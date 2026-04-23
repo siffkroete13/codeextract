@@ -39,7 +39,7 @@ def index():
 
     # DEFAULT_ROOT = "C:/Homepage/math-education-v3"
     # DEFAULT_ROOT = "C:/Homepage/codeextract"
-    DEFAULT_ROOT = "C:/Homepage/math-education-v4"
+    DEFAULT_ROOT = "C:/Homepage/math-education-v5"
 
     root = os.path.abspath(request.args.get("root") or DEFAULT_ROOT)
 
